@@ -16050,7 +16050,7 @@ public class PackageManagerService extends IPackageManager.Stub
             final BroadcastOptions bOptions = getTemporaryAppAllowlistBroadcastOptions(
                     REASON_LOCKED_BOOT_COMPLETED);
             am.broadcastIntentWithFeature(null, null, lockedBcIntent, null, null, 0, null, null,
-                    requiredPermissions, null, android.app.AppOpsManager.OP_NONE,
+                    requiredPermissions, null, null, android.app.AppOpsManager.OP_NONE,
                     bOptions.toBundle(), false, false, userId);
 
             // Deliver BOOT_COMPLETED only if user is unlocked
@@ -16061,7 +16061,7 @@ public class PackageManagerService extends IPackageManager.Stub
                     bcIntent.addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES);
                 }
                 am.broadcastIntentWithFeature(null, null, bcIntent, null, null, 0, null, null,
-                        requiredPermissions, null, android.app.AppOpsManager.OP_NONE,
+                        requiredPermissions, null, null, android.app.AppOpsManager.OP_NONE,
                         bOptions.toBundle(), false, false, userId);
             }
         } catch (RemoteException e) {
@@ -21436,6 +21436,20 @@ public class PackageManagerService extends IPackageManager.Stub
 
         final String packageName = versionedPackage.getPackageName();
         final long versionCode = versionedPackage.getLongVersionCode();
+
+        if (mProtectedPackages.isPackageStateProtected(userId, packageName)) {
+            mHandler.post(() -> {
+                try {
+                    Slog.w(TAG, "Attempted to delete protected package: " + packageName);
+                    observer.onPackageDeleted(packageName,
+                            PackageManager.DELETE_FAILED_INTERNAL_ERROR, null);
+                } catch (RemoteException re) {
+                }
+            });
+            return;
+        }
+
+
         final String internalPackageName;
 
         try {
@@ -21739,7 +21753,8 @@ public class PackageManagerService extends IPackageManager.Stub
                 return PackageManager.DELETE_FAILED_INTERNAL_ERROR;
             }
 
-            if (isSystemApp(uninstalledPs)) {
+            if (isSystemApp(uninstalledPs)
+                    && (deleteFlags & PackageManager.DELETE_SYSTEM_APP) == 0) {
                 UserInfo userInfo = mUserManager.getUserInfo(userId);
                 if (userInfo == null || !userInfo.isAdmin()) {
                     Slog.w(TAG, "Not removing package " + packageName
@@ -22997,7 +23012,7 @@ public class PackageManagerService extends IPackageManager.Stub
             intent.addFlags(Intent.FLAG_RECEIVER_REGISTERED_ONLY_BEFORE_BOOT);
             try {
                 am.broadcastIntentWithFeature(null, null, intent, null, null,
-                        0, null, null, null, null, android.app.AppOpsManager.OP_NONE,
+                        0, null, null, null, null, null, android.app.AppOpsManager.OP_NONE,
                         null, false, false, userId);
             } catch (RemoteException e) {
             }
@@ -24235,6 +24250,9 @@ public class PackageManagerService extends IPackageManager.Stub
                     } else {
                         Slog.w(TAG, "Failed setComponentEnabledSetting: component class "
                                 + className + " does not exist in " + packageName);
+                        // Safetynet logging for b/240936919
+                        EventLog.writeEvent(0x534e4554, "240936919", callingUid);
+                        return;
                     }
                 }
                 switch (newState) {
@@ -28878,8 +28896,8 @@ public class PackageManagerService extends IPackageManager.Stub
             };
             try {
                 am.broadcastIntentWithFeature(null, null, intent, null, null, 0, null, null,
-                        requiredPermissions, null, android.app.AppOpsManager.OP_NONE, null, false,
-                        false, UserHandle.USER_ALL);
+                        requiredPermissions, null, null, android.app.AppOpsManager.OP_NONE, null,
+                        false, false, UserHandle.USER_ALL);
             } catch (RemoteException e) {
                 throw e.rethrowFromSystemServer();
             }
